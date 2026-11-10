@@ -1,0 +1,1351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MARC to TEI Converter</title>
+<style>
+	:root {
+		--bg: #f5f3ef;
+		--panel: #ffffff;
+		--ink: #26221c;
+		--muted: #6f6659;
+		--accent: #6b2c91;
+		--accent-ink: #ffffff;
+		--border: #ddd6ca;
+		--ok: #2e7d32;
+		--err: #b3261e;
+		--code-bg: #f0ede6;
+		--drop-bg: #faf8f4;
+		--sx-punc: #8d8574;
+		--sx-tag: #1d5c8f;
+		--sx-attr: #8a5300;
+		--sx-val: #2e7d32;
+		--sx-comment: #948d7f;
+		--sx-decl: #7a7267;
+	}
+	@media (prefers-color-scheme: dark) {
+		:root {
+			--bg: #1c1a17;
+			--panel: #262320;
+			--ink: #ece7de;
+			--muted: #a89f90;
+			--accent: #c08ae0;
+			--accent-ink: #1c1a17;
+			--border: #3d3831;
+			--ok: #7fc784;
+			--err: #f2938c;
+			--code-bg: #201d1a;
+			--drop-bg: #2b2723;
+			--sx-punc: #7d7568;
+			--sx-tag: #6db3f2;
+			--sx-attr: #e5b567;
+			--sx-val: #9ece6a;
+			--sx-comment: #8b8375;
+			--sx-decl: #9a9184;
+		}
+	}
+	* { box-sizing: border-box; }
+	body {
+		margin: 0;
+		font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+		background: var(--bg);
+		color: var(--ink);
+		line-height: 1.55;
+	}
+	header {
+		background: var(--accent);
+		color: var(--accent-ink);
+		padding: 1.2rem 1.5rem;
+	}
+	header h1 { margin: 0; font-size: 1.5rem; font-weight: 700; }
+	nav#tabs {
+		background: var(--panel);
+		border-bottom: 1px solid var(--border);
+		padding: 0 1.5rem;
+		display: flex;
+		gap: 0.4rem;
+	}
+	nav#tabs .tab {
+		background: none;
+		border: none;
+		border-bottom: 3px solid transparent;
+		color: var(--muted);
+		font: inherit;
+		font-size: 0.95rem;
+		font-weight: 600;
+		padding: 0.75rem 1rem 0.6rem;
+		cursor: pointer;
+	}
+	nav#tabs .tab:hover { color: var(--ink); }
+	nav#tabs .tab.active {
+		color: var(--accent);
+		border-bottom-color: var(--accent);
+	}
+	main { max-width: 60rem; margin: 0 auto; padding: 1.5rem; }
+	.tabpanel[hidden] { display: none; }
+	section { margin-bottom: 2.2rem; }
+	h2 { font-size: 1.25rem; border-bottom: 2px solid var(--border); padding-bottom: 0.3rem; margin-top: 2rem; }
+	h3 { font-size: 1.05rem; margin-top: 1.5rem; }
+	a { color: var(--accent); }
+
+	#dropzone {
+		border: 2px dashed var(--border);
+		border-radius: 12px;
+		background: var(--drop-bg);
+		padding: 3rem 1.5rem;
+		text-align: center;
+		cursor: pointer;
+		transition: border-color 0.15s, background 0.15s;
+		margin-top: 1.2rem;
+	}
+	#dropzone.dragover { border-color: var(--accent); background: var(--panel); }
+	#dropzone .big { font-size: 1.15rem; font-weight: 600; }
+	#dropzone .hint { color: var(--muted); font-size: 0.9rem; margin-top: 0.4rem; }
+	#dropzone svg { width: 44px; height: 44px; stroke: var(--accent); margin-bottom: 0.6rem; }
+	#dropzone .again { display: none; font-size: 0.95rem; font-weight: 600; }
+	#convert.has-results #dropzone {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.6rem;
+		padding: 0.8rem 1.2rem;
+	}
+	#convert.has-results #dropzone svg { width: 22px; height: 22px; margin-bottom: 0; flex-shrink: 0; }
+	#convert.has-results #dropzone .big,
+	#convert.has-results #dropzone .hint { display: none; }
+	#convert.has-results #dropzone .again { display: block; }
+	.btn {
+		display: inline-block;
+		background: var(--accent);
+		color: var(--accent-ink);
+		border: none;
+		border-radius: 8px;
+		padding: 0.5rem 1rem;
+		font-size: 0.92rem;
+		font-weight: 600;
+		cursor: pointer;
+		font-family: inherit;
+	}
+	.btn:hover { filter: brightness(1.1); }
+
+	.card {
+		background: var(--panel);
+		border: 1px solid var(--border);
+		border-radius: 10px;
+		padding: 1rem 1.2rem;
+		margin-top: 1rem;
+	}
+	.card.error { border-color: var(--err); }
+	.card h4 { margin: 0 0 0.2rem; font-size: 1rem; word-break: break-all; }
+	.card .status { font-size: 0.85rem; }
+	.card .status.ok { color: var(--ok); }
+	.card .status.bad { color: var(--err); }
+	.record { border-top: 1px solid var(--border); margin-top: 0.8rem; padding-top: 0.8rem; }
+	.record .rec-head { display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; flex-wrap: wrap; }
+	.record .rec-title { font-size: 0.92rem; color: var(--muted); flex: 1; min-width: 12rem; }
+	details { margin-top: 0.7rem; }
+	summary { cursor: pointer; font-size: 0.9rem; color: var(--accent); font-weight: 600; }
+	pre {
+		background: var(--code-bg);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		padding: 0.8rem;
+		overflow-x: auto;
+		font-size: 0.78rem;
+		line-height: 1.45;
+		tab-size: 2;
+		max-height: 26rem;
+		overflow-y: auto;
+	}
+	pre .sx-punc { color: var(--sx-punc); }
+	pre .sx-tag { color: var(--sx-tag); }
+	pre .sx-attr { color: var(--sx-attr); }
+	pre .sx-val { color: var(--sx-val); }
+	pre .sx-comment { color: var(--sx-comment); font-style: italic; }
+	pre .sx-decl { color: var(--sx-decl); }
+	code {
+		background: var(--code-bg);
+		border-radius: 4px;
+		padding: 0.08rem 0.35rem;
+		font-size: 0.85em;
+	}
+	table {
+		border-collapse: collapse;
+		width: 100%;
+		font-size: 0.88rem;
+		margin: 0.8rem 0;
+	}
+	th, td {
+		border: 1px solid var(--border);
+		padding: 0.45rem 0.6rem;
+		text-align: left;
+		vertical-align: top;
+	}
+	th { background: var(--code-bg); }
+	.tablewrap { overflow-x: auto; }
+	ol li, ul li { margin-bottom: 0.35rem; }
+
+	@media (min-width: 1100px) {
+		header { padding-left: 2.5rem; padding-right: 2.5rem; }
+		nav#tabs { padding: 0 2.5rem; }
+		main { max-width: 110rem; padding: 1.5rem 2.5rem; }
+		pre { max-height: 42rem; }
+		#docs p, #docs ul { max-width: 90ch; }
+	}
+</style>
+</head>
+<body>
+
+<header>
+	<h1>MARC&nbsp;&rarr;&nbsp;TEI Converter</h1>
+</header>
+
+<nav id="tabs" role="tablist">
+	<button class="tab active" type="button" role="tab" aria-selected="true" aria-controls="convert" data-tab="convert">Converter</button>
+	<button class="tab" type="button" role="tab" aria-selected="false" aria-controls="docs" data-tab="docs">Documentation</button>
+</nav>
+
+<main>
+
+<section id="convert" class="tabpanel" role="tabpanel">
+	<div id="dropzone" tabindex="0" role="button" aria-label="Drop a MARC XML file here or click to browse">
+		<svg viewBox="0 0 24 24" fill="none" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+			<path d="M12 3v12m0-12l-4 4m4-4l4 4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>
+		</svg>
+		<div class="big">Drop a MARC XML file here</div>
+		<div class="hint">&hellip;or click to browse.</div>
+		<div class="again">Convert another file</div>
+	</div>
+	<input type="file" id="fileinput" accept=".xml,text/xml,application/xml" multiple hidden>
+	<div id="results"></div>
+</section>
+
+<section id="docs" class="tabpanel" role="tabpanel" hidden>
+	<h2>Field mapping</h2>
+	<div class="tablewrap">
+	<table>
+		<thead><tr><th>MARC field</th><th>Used subfields</th><th>TEI destination</th><th>Notes</th></tr></thead>
+		<tbody>
+			<tr><td><code>001</code></td><td>&mdash;</td><td><code>additional/listBibl/bibl</code></td><td>Rendered as &ldquo;Recorded in University of Manchester Library&nbsp;Search&rdquo; with a permalink built from the Alma system number.</td></tr>
+			<tr><td><code>008</code></td><td>positions 6, 7&ndash;10, 11&ndash;14, 35&ndash;37</td><td><code>history/origin/origDate</code>; <code>msItem/textLang</code></td><td>Builds a single <code>origDate</code>: <code>@when</code> for one year, or <code>@notBefore</code>/<code>@notAfter</code> when the type of date (position&nbsp;6) is a range (<code>i k m q</code>) or the year has unknown digits (<code>15uu</code>&nbsp;&rarr;&nbsp;1500&ndash;1599). The language code is used only if <code>041</code> supplied none.</td></tr>
+			<tr><td><code>041</code></td><td><code>$a</code></td><td><code>msItem/textLang</code></td><td>Preferred source for the language. The first code becomes <code>@mainLang</code>, any further codes <code>@otherLangs</code>; the element text gives the language names (e.g. <code>&lt;textLang mainLang="lat"&gt;Latin&lt;/textLang&gt;</code>).</td></tr>
+			<tr><td><code>100</code></td><td>all</td><td><code>msItem/author</code></td><td>All subfields joined with spaces. Emitted as <code>&lt;author source="#viaf" key="000000000"&gt;</code>; the key is a placeholder for later authority reconciliation. Omitted when there is no <code>100</code>.</td></tr>
+			<tr><td><code>245</code></td><td>all</td><td><code>msItem/title</code></td><td>First <code>245</code> wins; subfields joined with spaces. (Also used as <code>titleStmt/title</code> if the record has no <code>852&nbsp;$h</code> shelfmark.)</td></tr>
+			<tr><td><code>246</code></td><td><code>$a</code></td><td><code>msItem/title[@type="alt"]</code></td><td>Trailing punctuation (<code>/&nbsp;;&nbsp;:&nbsp;,</code>) is trimmed.</td></tr>
+			<tr><td><code>264</code></td><td>all</td><td><code>origin/note[@type="publisher"]</code></td><td>Publication/production statement.</td></tr>
+			<tr><td><code>300</code></td><td>all</td><td><code>supportDesc/extent</code></td><td>Subfields joined with commas; an empty <code>dimensions type="leaf" unit="mm"</code> skeleton is added for manual completion.</td></tr>
+			<tr><td><code>500</code></td><td><code>$a</code></td><td><code>msItem/note/p</code></td><td>General notes; internal whitespace collapsed. The <code>note</code> is omitted when there are none.</td></tr>
+			<tr><td><code>505</code></td><td><code>$t</code>, <code>$g</code></td><td><code>msContents/msItem</code> (<code>locus</code> + <code>title</code>)</td><td>Formatted contents note: each <code>$t</code>&nbsp;(title) paired with the following <code>$g</code>&nbsp;(locus) becomes a nested <code>msItem</code>, numbered with <code>@n</code>.</td></tr>
+			<tr><td><code>510</code></td><td><code>$a</code>, <code>$c</code></td><td><code>additional/listBibl/bibl</code></td><td>Citation/reference note.</td></tr>
+			<tr><td><code>541</code></td><td><code>$a</code></td><td><code>history/acquisition/p</code></td><td>Immediate source of acquisition.</td></tr>
+			<tr><td><code>561</code></td><td><code>$a</code></td><td><code>history/provenance/p</code></td><td>Ownership and custodial history. Each <code>561</code> becomes its own <code>provenance</code> (one per ownership stage).</td></tr>
+			<tr><td><code>562</code></td><td><code>$a</code></td><td><code>physDesc/p</code></td><td>Copy/version identification note.</td></tr>
+			<tr><td><code>563</code></td><td><code>$a</code></td><td><code>physDesc/bindingDesc/binding/p</code></td><td>Binding information.</td></tr>
+			<tr><td><code>600, 610, 611, 630, 650, 651, 655</code></td><td>all</td><td><code>profileDesc/textClass/keywords/list/item/term</code></td><td>Subject headings, keyed to the <code>#lcsh</code> taxonomy. Subdivision subfields <code>$v $x $y $z</code> are joined with &ldquo;&nbsp;--&nbsp;&rdquo;; <code>$0 $1 $2</code> (authority URIs and source codes) are dropped. The <code>key</code> attribute (<code>sh00000000</code>) is a placeholder. <code>profileDesc</code> is omitted when there are no subjects.</td></tr>
+			<tr><td><code>700</code></td><td>all except <code>$5</code></td><td><code>msItem/editor</code></td><td>Added personal names, emitted as <code>&lt;editor source="#viaf" key="000000000"&gt;</code>. A recognised relator term in <code>$e</code> becomes a <code>role</code> attribute holding the MARC relator code (e.g. <em>translator</em>&nbsp;&rarr;&nbsp;<code>trl</code>).</td></tr>
+			<tr><td><code>740</code></td><td>all</td><td><code>msItem/title[@type="alt"]</code></td><td>Uncontrolled related/analytical title.</td></tr>
+			<tr><td><code>752</code></td><td><code>$a $b $c $d</code></td><td><code>history/origin/origPlace</code></td><td>Hierarchical place name: <code>$a</code>&nbsp;&rarr;&nbsp;<code>country</code>, <code>$b</code>/<code>$c</code>&nbsp;&rarr;&nbsp;<code>region</code>, <code>$d</code>&nbsp;&rarr;&nbsp;<code>settlement</code>, each with a placeholder TGN key (<code>source="#tgn" key="0000000"</code>).</td></tr>
+			<tr><td><code>852</code></td><td><code>$a $b $c $h</code></td><td><code>msIdentifier</code></td><td>See &ldquo;Repository and collection codes&rdquo; below. <code>$a$b$c$h</code> joined with hyphens form the <code>TEI/@xml:id</code> (characters not allowed in an XML ID, such as spaces, become hyphens). <code>$h</code> alone is the shelfmark: it fills <code>msIdentifier/idno</code> and <code>titleStmt/title</code>.</td></tr>
+		</tbody>
+	</table>
+	</div>
+
+	<h2>Repository and collection codes</h2>
+	<p>The library code in <code>852&nbsp;$b</code> selects the repository and its collection-code lookup table:</p>
+	<ul>
+		<li><code>JRLD</code> &rarr; <strong>The John Rylands Library</strong> (about 90 collection codes, e.g. <code>INCU</code>&nbsp;&rarr; <em>Incunable Collection</em>, <code>DANT</code>&nbsp;&rarr; <em>Dante Collection</em>)</li>
+		<li><code>MLSC</code> &rarr; <strong>Main Library Special Collections</strong> (about 65 collection codes, e.g. <code>MAPC</code>&nbsp;&rarr; <em>Map Collection</em>, <code>GUAR</code>&nbsp;&rarr; <em>Guardian Archive Printed Collection</em>)</li>
+	</ul>
+	<p>The collection code from <code>852&nbsp;$c</code> is replaced with its full collection name when it exists in the selected table; unknown codes are passed through unchanged.</p>
+
+	<h2>Relator terms</h2>
+	<p>Contributor roles in <code>700&nbsp;$e</code> (e.g. <em>editor</em>, <em>translator</em>, <em>former owner</em>) are matched case-insensitively against the full <a href="https://www.loc.gov/marc/relators/relaterm.html">MARC Code List for Relators</a> (~250 terms) and emitted as a three-letter code in the <code>role</code> attribute of the resulting <code>&lt;editor&gt;</code> element. Unrecognised terms simply produce an <code>&lt;editor&gt;</code> without a role.</p>
+
+	<h2>Template, fixed boilerplate and placeholders</h2>
+	<p>Output follows the <a href="https://uomlibrary.github.io/MDC-TEI-Guidelines-Draft/templates/template-master.xml">MDC TEI master template</a> and carries its <code>xml-model</code> references to the <code>cdcp.rng</code> schema. Every file includes the template&rsquo;s fixed values: the <code>titleStmt</code> responsibility statements, the publication statement (address, rights statements, CC&nbsp;BY-NC&nbsp;4.0 licences with targets, publication <code>date</code> set to the year of conversion), the reader-availability statement, a digitisation <code>custEvent</code> with comment placeholders, and the LCSH, ISO&nbsp;639-2, MARC relator, VIAF, TGN and AAT taxonomy declarations.</p>
+	<p>Skeleton elements are kept for cataloguers to complete after conversion: <code>summary</code>, <code>material</code>, <code>dimensions</code>, <code>foliation</code>, <code>collation</code>, <code>condition</code>, <code>layoutDesc</code>, <code>handDesc</code>, <code>decoDesc</code> (illustration and initial), <code>additions</code>, <code>binding</code>, <code>provenance</code> and <code>acquisition</code>. <code>objectDesc/@form="codex"</code> and <code>supportDesc/@material="paper"</code> are the template defaults and should be reviewed. Optional template modules with no MARC source (<code>funder</code>, <code>altIdentifier</code>, <code>head</code>, <code>rubric</code>/<code>incipit</code>/&hellip;, <code>typeDesc</code>, <code>musicNotation</code>, <code>sealDesc</code>, <code>accMat</code>, <code>recordHist</code>, <code>msPart</code>, <code>projectDesc</code>) are left out. VIAF, LCSH and TGN keys are deliberately emitted as zero-placeholders for a later authority-reconciliation pass.</p>
+</section>
+
+</main>
+
+<script>
+'use strict';
+
+/* ============================================================
+ * Lookup tables (ported verbatim from the reference tool)
+ * ============================================================ */
+
+const JRLD_LOOKUPS = {
+	'KIND':'A. Gordon Kinder Book Collection','ALDI':'Aldine Collection','FREE':'Allen Freer Book Collection',
+	'ANVI':'Anvil Press Printed Collection','MARC':'Arthur Marmorstein Printed Collection','DEAN':'Basil Dean Book Collection',
+	'BENC':'Bench Books','XYLO':'Blockbook Collection','BONH':'Bonhams Auction Catalogues',
+	'BLIT':'Bookbinding Literature Collection','XLIB':'Bookplate Literature Collection','BPIX':'Britain in Pictures',
+	'BPPA':'British Political Pamphlets','CARC':'Carcanet Press Printed Collection','SCCC':"Children's Printed Collection",
+	'CCAT':"Christie's Auction Catalogues",'DANT':'Dante Collection','BLAM':'David Blamires Alphabet Book Collection',
+	'LLOY':'David Lloyd Roberts Book Collection','STOZ':'DG Periodicals','BRAY':'Dr Bray Clerical Lending Library',
+	'PHOT':'Early Photographic Books','UPTO':'Edward Allatt Upton Sinclair Book Collection','BANK':'Edward L. Burney Book Collection',
+	'EPAB':'European Proclamations and Broadsides','DFAR':'Farrar Deaf Education Collection','WW1':'First World War Pamphlet Collection',
+	'THOM':'Francis Thompson Printed Collection','JOHN':'George C. Johnson Collection','BRTH':'George L. Brook Theology Collection',
+	'HASK':'Haskalah Printed Collection','WILS':'Henry J. Wilson Anti-Slavery Collection','HOST':'HoST Collection',
+	'HSBC':'Howard Spring Book Collection','INCU':'Incunable Collection','JCOX':'Jack Cox Printed Collection',
+	'JPJC':'James P. Joule Book Collection','PARC':'James R. Partington Collection','JAPA':'Japanese Printed Collection',
+	'NUTT':'Jeff Nuttall Printed Collection','WILK':'John T. Wilkinson Book Collection','NICO':'J. R. Allardyce Nicoll Printed Collection',
+	'HART':'Leslie P. Hartley Book Collection','LAUC':'Library Auction Catalogues','CHIA':'Li Yuan-Chia Printed Collection',
+	'MAZA':'Mazarinades Collection','MAND':'Medical (1701-1800) Printed Collection','PARK':'Medical (pre-1701) Printed Collection',
+	'METH':'Methodist Printed Collections','METL':'Methodist Printed Collections (Local History)','METP':'Methodist Printed Collections (Pamphlets)',
+	'METR':'Methodist Printed Collections (Richmond College)','SPME':'Methodist Printed Collections (Serials)',
+	'METB':'Methodist Printed Collections (Wesley College Bristol)','MIDG':'Midgley Reference Library','WARE':'Mike Ware Printed Collection',
+	'MLFE':'Modern Literary First Editions','GAST':'Moses Gaster Printed Collection','NANT':'Nantwich Parochial Library',
+	'NICH':'Norman Nicholson Book Collection','BAPT':'Northern Baptist College Printed Collection',
+	'CONG':'Northern Congregational College Printed Collection','NWPR':'North West Printing Collection',
+	'CASD':'Olga X. Casdagli Book Collection','PAMD':'Pamphlet Collection','PLAY':'Playbills Collection',
+	'PRIV':'Private Press Collection','RRJR':'Reading Room','CHRI':'Richard C. Christie Printed Collection',
+	'SHAC':'Robert Shackleton Book Collection','ROXB':'Roxburghe Club Collection','SEDB':'Sedbergh School Library Collection',
+	'NEAL':'Sir John E. Neale Collection','SOCP':'Social Pamphlets','SOTH':"Sotheby's Auction Catalogues",
+	'SPGB':'Spec Coll Guardbook Serials','SPCC':'Special Collections','SPEC':'Special Collections Serials',
+	'TABL':'Tabley House Book Collection','TABC':'Tabley House Cartoon Collection','TEUD':'Teubner Classics Collection',
+	'THES':'Theses','RAFF':'Thomas Raffles Book Collection','UNASSIGNED':'UNASSIGNED location',
+	'UNIT':'Unitarian College Printed Collection','BULL':'Walter L. Bullock Book Collection',
+	'CCOL':'William Brockbank Cricket Collection','WLQC':'Wilmslow Quaker Collection'
+};
+
+const MLSC_LOOKUPS = {
+	'NICA':'Andrew Nicholson Book Collection','ASHB':'Ashburne Hall (Miscellaneous) Book Collection',
+	'MORL':'Ashburne Hall (Morley Bequest) Book Collection','TOLL':'Ashburne Hall (Toller Bequest) Book Collection',
+	'TOOT':'Ashburne Hall (Tootal Broadhurst Bequest) Book Collection','BENC':'Bench Books',
+	'BCOX':'C. Brian Cox Printed Collection','CHBR':'Christian Brethren Printed Collection','CUBA':'Cuban Women Writers Collection',
+	'TYLE':'Dame Mabel Tylecote Printed Collection','DOLC':'Danilo Dolci Book Collection','STOH':'Deaf Education (1801- ) Collection',
+	'DUMA':'Douglas Munro Alexandre Dumas père Collection','VOEG':'Eric Voegelin Printed Collection','ESPO':'Esperanto Collection',
+	'EUMP':'European Modernist Periodicals','FACO':'Foreign and Commonwealth Office Pamphlet Collection',
+	'FLIT':'French Literature Collection','GENR':'General Railway Collection','BRDR':'George L. Brook Drama Collection',
+	'MOSS':'Graham Moss Railway Collection','GUAR':'Guardian Archive Printed Collection','BELL':'Hugh H. Bellot Book Collection',
+	'CASS':'James Cassedy Book Collection','BOYD':'James I. C. Boyd Railway Collection','STUB':'John Heath-Stubbs Book Collection',
+	'MARM':'John P. Marmion Book Collection','BROW':'Kenneth Brown Railway Collection','LAYC':'Laity Collection',
+	'MGSA':'Manchester Geographical Society (Atlas)','MGSB':'Manchester Geographical Society (Book)',
+	'MGSM':'Manchester Geographical Society (Map)','MASO':'Manchester Masonic Research Collection','MUSE':'Manchester Museum Collection',
+	'MAPC':'Map Collection','ATLA':'Map Collection (Atlases)','MAPD':'Map Collection (Flat)','MAPE':'Map Collection (Folded)',
+	'GESU':'Map Collection (Geological Surveys)','SOSU':'Map Collection (Soil Surveys)',
+	'PROU':'Marie Riefstahl Nordlinger (Proust) Collection','STOP':'Marie Stopes and Birth Control Collection',
+	'MPA1':'Medical Pamphlets Collection 1','MPA2':'Medical Pamphlets Collection 2','MPA3':'Medical Pamphlets Collection 3',
+	'MANM':'Medical  (post-1800, classified) Printed Collection','MEDX':'Medical (post-1800, miscellaneous) Printed Collection',
+	'ROBL':'Michael Robbins London Collection','ROBR':'Michael Robbins Railway Collection','MLSC':'MLSC',
+	'XDEW':'MLSC Dewey Sequence (X)','SPEC':'MLSC Serials','MUMC':'Mountaineering Club Collection',
+	'SALV':'Neil Salvesen Esperanto Collection','HUCH':'Peter Huchel Book Collection','STEW':'Richard F. Stewart Collection',
+	'TELT':'Richard Teltscher Collection','WOOD':'Roger J. Wood Genetics Textbook Collection','STOX':'U Collection',
+	'URB':'UMIST Rare Book Collection','UNASSIGNED':'UNASSIGNED location','UNIM':'Unitarian College (1801- ) Printed Collection',
+	'UNIZ':'Unitarian College Pamphlet Collection'
+};
+
+const RELATED_TERMS = {
+	'abridger':'abr','actor':'act','adapter':'adp','addressee':'rcp','analyst':'anl','animator':'anm','annotator':'ann',
+	'appellant':'apl','appellee':'ape','applicant':'app','architect':'arc','arranger':'arr','art copyist':'acp',
+	'art director':'adi','artist':'art','artistic director':'ard','assignee':'asg','associated name':'asn',
+	'attributed name':'att','auctioneer':'auc','author':'aut','author in quotations or text abstracts':'aqt',
+	'author of afterword, colophon, etc.':'aft','author of dialog':'aud','author of introduction, etc.':'aui',
+	'autographer':'ato','bibliographic antecedent':'ant','binder':'bnd','binding designer':'bdd','blurb writer':'blw',
+	'book designer':'bkd','book producer':'bkp','bookjacket designer':'bjd','bookplate designer':'bpd','bookseller':'bsl',
+	'braille embosser':'brl','broadcaster':'brd','calligrapher':'cll','cartographer':'ctg','caster':'cas','censor':'cns',
+	'choreographer':'chr','cinematographer':'cng','client':'cli','collection registrar':'cor','collector':'col',
+	'collotyper':'clt','colorist':'clr','commentator':'cmm','commentator for written text':'cwt','compiler':'com',
+	'complainant':'cpl','complainant-appellant':'cpt','complainant-appellee':'cpe','composer':'cmp','compositor':'cmt',
+	'conceptor':'ccp','conductor':'cnd','conservator':'con','consultant':'csl','consultant to a project':'csp',
+	'contestant':'cos','contestant-appellant':'cot','contestant-appellee':'coe','contestee':'cts',
+	'contestee-appellant':'ctt','contestee-appellee':'cte','contractor':'ctr','contributor':'ctb',
+	'copyright claimant':'cpc','copyright holder':'cph','corrector':'crr','correspondent':'crp','costume designer':'cst',
+	'court governed':'cou','court reporter':'crt','cover designer':'cov','creator':'cre','curator':'cur','dancer':'dnc',
+	'data contributor':'dtc','data manager':'dtm','dedicatee':'dte','dedicator':'dto','defendant':'dfd',
+	'defendant-appellant':'dft','defendant-appellee':'dfe','degree granting institution':'dgg','degree supervisor':'dgs',
+	'delineator':'dln','depicted':'dpc','depositor':'dpt','designer':'dsr','director':'drt','dissertant':'dis',
+	'distribution place':'dbp','distributor':'dst','donor':'dnr','draftsman':'drm','dubious author':'dub','editor':'edt',
+	'editor of compilation':'edc','editor of moving image work':'edm','electrician':'elg','electrotyper':'elt',
+	'enacting jurisdiction':'enj','engineer':'eng','engraver':'egr','etcher':'etr','event place':'evp','expert':'exp',
+	'facsimilist':'fac','field director':'fld','film director':'fmd','film distributor':'fds','film editor':'flm',
+	'film producer':'fmp','filmmaker':'fmk','first party':'fpy','forger':'frg','former owner':'fmo','funder':'fnd',
+	'geographic information specialist':'gis','honoree':'hnr','host':'hst','host institution':'his','illuminator':'ilu',
+	'illustrator':'ill','inscriber':'ins','instrumentalist':'itr','interviewee':'ive','interviewer':'ivr','inventor':'inv',
+	'issuing body':'isb','judge':'jud','jurisdiction governed':'jug','laboratory':'lbr','laboratory director':'ldr',
+	'landscape architect':'lsa','lead':'led','lender':'len','libelant':'lil','libelant-appellant':'lit',
+	'libelant-appellee':'lie','libelee':'lel','libelee-appellant':'let','libelee-appellee':'lee','librettist':'lbt',
+	'licensee':'lse','licensor':'lso','lighting designer':'lgd','lithographer':'ltg','lyricist':'lyr',
+	'manufacture place':'mfp','manufacturer':'mfr','marbler':'mrb','markup editor':'mrk','medium':'med',
+	'metadata contact':'mdc','metal-engraver':'mte','minute taker':'mtk','moderator':'mod','monitor':'mon',
+	'music copyist':'mcp','musical director':'msd','musician':'mus','narrator':'nrt','onscreen presenter':'osp',
+	'opponent':'opn','organizer':'orm','originator':'org','other':'oth','owner':'own','panelist':'pan','papermaker':'ppm',
+	'patent applicant':'pta','patent holder':'pth','patron':'pat','performer':'prf','permitting agency':'pma',
+	'photographer':'pht','plaintiff':'ptf','plaintiff-appellant':'ptt','plaintiff-appellee':'pte','platemaker':'plt',
+	'praeses':'pra','presenter':'pre','printer':'prt','printer of plates':'pop','printmaker':'prm','process contact':'prc',
+	'producer':'pro','production company':'prn','production designer':'prs','production manager':'pmn',
+	'production personnel':'prd','production place':'prp','programmer':'prg','project director':'pdr','proofreader':'pfr',
+	'provider':'prv','publication place':'pup','publisher':'pbl','publishing director':'pbd','puppeteer':'ppt',
+	'radio director':'rdd','radio producer':'rpc','recording engineer':'rce','recordist':'rcd','redaktor':'red',
+	'renderer':'ren','reporter':'rpt','repository':'rps','research team head':'rth','research team member':'rtm',
+	'researcher':'res','respondent':'rsp','respondent-appellant':'rst','respondent-appellee':'rse',
+	'responsible party':'rpy','restager':'rsg','restorationist':'rsr','reviewer':'rev','rubricator':'rbr',
+	'scenarist':'sce','scientific advisor':'sad','screenwriter':'aus','scribe':'scr','sculptor':'scl',
+	'second party':'spy','secretary':'sec','seller':'sll','set designer':'std','setting':'stg','signer':'sgn',
+	'singer':'sng','sound designer':'sds','speaker':'spk','sponsor':'spn','stage director':'sgd','stage manager':'stm',
+	'standards body':'stn','stereotyper':'str','storyteller':'stl','supporting host':'sht','surveyor':'srv',
+	'teacher':'tch','technical director':'tcd','television director':'tld','television producer':'tlp',
+	'thesis advisor':'ths','transcriber':'trc','translator':'trl','type designer':'tyd','typographer':'tyg',
+	'university place':'uvp','videographer':'vdg','voice actor':'vac','witness':'wit','wood engraver':'wde',
+	'woodcutter':'wdc','writer of accompanying material':'wam','writer of added commentary':'wac',
+	'writer of added lyrics':'wal','writer of added text':'wat','writer of introduction':'win','writer of preface':'wpr',
+	'writer of supplementary textual content':'wst'
+};
+
+/* ============================================================
+ * String helpers (equivalents of tscommons / shared-tei helpers)
+ * ============================================================ */
+
+function strTrim(s, chars) {
+	let start = 0;
+	let end = s.length;
+	while (start < end && chars.indexOf(s[start]) !== -1) start++;
+	while (end > start && chars.indexOf(s[end - 1]) !== -1) end--;
+	return s.slice(start, end);
+}
+
+function trimLeadingNls(s) {
+	return s.replace(/^\n+/, '');
+}
+
+function collapseWs(s) {
+	return s.replace(/[\t\n\r\x0B]/g, ' ').replace(/[ ]{2,}/g, ' ');
+}
+
+function escXml(s) {
+	return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function escAttr(s) {
+	return escXml(s).replace(/"/g, '&quot;');
+}
+
+/* ============================================================
+ * MARC XML parsing (namespace-tolerant, like the CLI's tweaks)
+ * ============================================================ */
+
+function parseMarcFile(text) {
+	const doc = new DOMParser().parseFromString(text, 'application/xml');
+	if (doc.getElementsByTagName('parsererror').length > 0) {
+		throw new Error('Not well-formed XML: ' + doc.getElementsByTagName('parsererror')[0].textContent.split('\n')[0]);
+	}
+
+	let recordEls = Array.from(doc.getElementsByTagNameNS('*', 'record'));
+	if (recordEls.length === 0 && doc.documentElement.localName === 'record') {
+		recordEls = [doc.documentElement];
+	}
+	if (recordEls.length === 0) {
+		throw new Error('Invalid MARC XML data: no <record> element found');
+	}
+
+	return recordEls.map(readRecord);
+}
+
+function readRecord(recordEl) {
+	const record = { leader: '', controlfields: [], datafields: [] };
+	for (const el of recordEl.children) {
+		switch (el.localName) {
+			case 'leader':
+				record.leader = el.textContent;
+				break;
+			case 'controlfield':
+				record.controlfields.push({
+					tag: el.getAttribute('tag') || '',
+					text: el.textContent
+				});
+				break;
+			case 'datafield': {
+				const subfields = [];
+				for (const sub of el.children) {
+					if (sub.localName !== 'subfield') continue;
+					subfields.push({
+						code: sub.getAttribute('code') || '',
+						text: sub.textContent
+					});
+				}
+				record.datafields.push({
+					tag: el.getAttribute('tag') || '',
+					ind1: (el.getAttribute('ind1') || '').trim(),
+					ind2: (el.getAttribute('ind2') || '').trim(),
+					subfields: subfields
+				});
+				break;
+			}
+		}
+	}
+	return record;
+}
+
+/* ============================================================
+ * MARC language codes (MARC / ISO 639-2/B) → English names,
+ * used for the human-readable content of <textLang>
+ * ============================================================ */
+
+const LANGUAGE_NAMES = {
+	'afr':'Afrikaans','akk':'Akkadian','alb':'Albanian','amh':'Amharic','ang':'Old English','ara':'Arabic',
+	'arc':'Aramaic','arm':'Armenian','aze':'Azerbaijani','baq':'Basque','bel':'Belarusian','ben':'Bengali',
+	'bre':'Breton','bul':'Bulgarian','bur':'Burmese','cat':'Catalan','chg':'Chagatai','chi':'Chinese',
+	'chu':'Church Slavic','cop':'Coptic','cor':'Cornish','cze':'Czech','dan':'Danish','dum':'Middle Dutch',
+	'dut':'Dutch','egy':'Egyptian','eng':'English','enm':'Middle English','epo':'Esperanto','est':'Estonian',
+	'eth':'Ethiopic','fin':'Finnish','fre':'French','frm':'Middle French','fro':'Old French','fry':'Frisian',
+	'geo':'Georgian','ger':'German','gez':'Ethiopic','gla':'Scottish Gaelic','gle':'Irish','glg':'Galician',
+	'gmh':'Middle High German','goh':'Old High German','grc':'Ancient Greek','gre':'Modern Greek',
+	'guj':'Gujarati','heb':'Hebrew','hin':'Hindi','hrv':'Croatian','hun':'Hungarian','ice':'Icelandic',
+	'ind':'Indonesian','ita':'Italian','jav':'Javanese','jpn':'Japanese','jpr':'Judeo-Persian',
+	'jrb':'Judeo-Arabic','kaz':'Kazakh','khm':'Khmer','kor':'Korean','kur':'Kurdish','lad':'Ladino',
+	'lat':'Latin','lav':'Latvian','lit':'Lithuanian','ltz':'Luxembourgish','mac':'Macedonian',
+	'mal':'Malayalam','mar':'Marathi','may':'Malay','mga':'Middle Irish','mlt':'Maltese','mon':'Mongolian',
+	'mul':'Multiple languages','nds':'Low German','nep':'Nepali','non':'Old Norse','nor':'Norwegian',
+	'oci':'Occitan','ota':'Ottoman Turkish','pal':'Pahlavi','pan':'Panjabi','peo':'Old Persian',
+	'per':'Persian','pli':'Pali','pol':'Polish','por':'Portuguese','pro':'Provençal','pus':'Pushto',
+	'rum':'Romanian','rus':'Russian','sam':'Samaritan Aramaic','san':'Sanskrit','sco':'Scots',
+	'sga':'Old Irish','sin':'Sinhalese','slo':'Slovak','slv':'Slovenian','spa':'Spanish','srp':'Serbian',
+	'sux':'Sumerian','swa':'Swahili','swe':'Swedish','syr':'Syriac','tam':'Tamil','tat':'Tatar',
+	'tel':'Telugu','tha':'Thai','tib':'Tibetan','tur':'Turkish','ukr':'Ukrainian','und':'Undetermined',
+	'urd':'Urdu','uzb':'Uzbek','vie':'Vietnamese','wel':'Welsh','wen':'Sorbian','yid':'Yiddish',
+	'zul':'Zulu','zxx':'No linguistic content'
+};
+
+/* ============================================================
+ * Converter helpers
+ * ============================================================ */
+
+// Make a value usable as an xml:id (an XML NCName).
+function toXmlId(s) {
+	let id = String(s || '').trim()
+		.replace(/[^A-Za-z0-9._-]+/g, '-')
+		.replace(/-{2,}/g, '-')
+		.replace(/^-+|-+$/g, '');
+	if (id !== '' && !/^[A-Za-z_]/.test(id)) id = '_' + id;
+	return id;
+}
+
+// Interpret a 4-character 008 date ("1497", "15uu", "    ", "||||").
+function marcYear(s) {
+	if (/^\d{4}$/.test(s)) return { from: s, to: s };
+	if (/^\d{1,3}u{1,3}$/.test(s)) return { from: s.replace(/u/g, '0'), to: s.replace(/u/g, '9') };
+	return null;
+}
+
+// Build a single <origDate> from 008/06 (type of date) and Date 1 / Date 2.
+// Date 2 only extends the range for the range types (i, k, m, q); for other
+// types it holds something else (reprint/copyright date, month+day, …).
+function buildOrigDate(type, d1, d2) {
+	const a = marcYear(d1);
+	if (!a) return '';
+	let from = a.from;
+	let to = a.to;
+	if ('ikmq'.includes(type) && d2 !== '9999') {
+		const b = marcYear(d2);
+		if (b) to = b.to;
+	}
+	if (from === to) return `<origDate when="${escAttr(from)}">${escXml(from)}</origDate>`;
+	return `<origDate notBefore="${escAttr(from)}" notAfter="${escAttr(to)}">${escXml(from)}-${escXml(to)}</origDate>`;
+}
+
+// Split a MARC language subfield into 3-letter codes (handles "latgre").
+function splitLangCodes(s) {
+	const v = String(s || '').trim().toLowerCase();
+	if (!/^[a-z]{3}$|^([a-z]{3})+$/.test(v)) return [];
+	return v.match(/.{3}/g);
+}
+
+/* ============================================================
+ * Converter — originally a port of classes/converter.ts,
+ * now emitting the MDC TEI master template structure
+ * (uomlibrary.github.io/MDC-TEI-Guidelines-Draft/templates/template-master.xml)
+ * ============================================================ */
+
+class Converter {
+	constructor(relatedTerms, jrldLookup, mlscLookup) {
+		this.relatedTerms = relatedTerms;
+		this.jrldLookup = jrldLookup;
+		this.mlscLookup = mlscLookup;
+		this.tei = null;
+	}
+
+	handleBibl(controlfield) {
+		this.tei.bibls.push(`<bibl>Recorded in University of Manchester <ref target="https://www.librarysearch.manchester.ac.uk/permalink/44MAN_INST/elks2a/alma${escAttr(controlfield.text.trim())}">Library Search</ref></bibl>\n`);
+	}
+
+	handleOrigDateAndLang(controlfield) {
+		const value = (controlfield.text || '').toString();
+		const result = /^.{6}(.)(.{4})(.{4}).{20}(.{3})/.exec(value);
+		if (!result) throw new Error('Unable to parse 008 date and lang');
+
+		const origdate = buildOrigDate(result[1], result[2], result[3]);
+		if (origdate) this.tei.origdates.push(origdate + '\n');
+
+		const lang = result[4].trim().toLowerCase();
+		if (/^[a-z]{3}$/.test(lang)) this.tei.lang008 = lang;
+	}
+
+	handleMainLang(datafield) {
+		for (const sub of datafield.subfields) {
+			if (sub.code !== 'a') continue;
+			for (const code of splitLangCodes(sub.text)) {
+				if (!this.tei.langs041.includes(code)) this.tei.langs041.push(code);
+			}
+		}
+	}
+
+	handleAuthor(datafield) {
+		for (const sub of datafield.subfields) {
+			this.tei.authors.push(sub.text);
+		}
+	}
+
+	handleTitle(datafield) {
+		if (this.tei.title) return;
+		const subs = datafield.subfields
+			.map((sub) => strTrim(sub.text, ' \t\n\r\0\v'))
+			.filter((s) => s !== '');
+		this.tei.title = subs.join(' ');
+	}
+
+	handleAltTitle(datafield) {
+		for (const sub of datafield.subfields) {
+			if (sub.code !== 'a') continue;
+			this.tei.alttitles.push(`<title type="alt">${escXml(strTrim(sub.text, '/;:, \t\n\r\0\v'))}</title>\n`);
+		}
+	}
+
+	handleOrigNote(datafield) {
+		for (const sub of datafield.subfields) {
+			this.tei.orignotes.push(sub.text.trim());
+		}
+	}
+
+	handleOrigPlace(datafield) {
+		const parts = [];
+		for (const sub of datafield.subfields) {
+			const v = strTrim(sub.text, '/;:,. \t\n\r\0\v');
+			if (v === '') continue;
+			switch (sub.code) {
+				case 'a': parts.push(`<country source="#tgn" key="0000000">${escXml(v)}</country>`); break;
+				case 'b':
+				case 'c': parts.push(`<region source="#tgn" key="0000000">${escXml(v)}</region>`); break;
+				case 'd': parts.push(`<settlement source="#tgn" key="0000000">${escXml(v)}</settlement>`); break;
+			}
+		}
+		if (parts.length) this.tei.origplaces.push(`<origPlace>${parts.join(', ')}</origPlace>\n`);
+	}
+
+	handleExtent(datafield) {
+		const subs = datafield.subfields
+			.map((sub) => strTrim(sub.text, '/;:, \t\n\r\0\v'))
+			.filter((s) => s !== '');
+		this.tei.extents.push(`<extent>${escXml(subs.join(', '))}
+	<dimensions type="leaf" unit="mm">
+		<height/>
+		<width/>
+	</dimensions>
+</extent>
+`);
+	}
+
+	handleNote(datafield) {
+		for (const sub of datafield.subfields) {
+			if (sub.code !== 'a') continue;
+			const note = collapseWs(strTrim(sub.text, '/;:, \t\n\r\0\v'));
+			this.tei.notes.push(`<p>${escXml(note)}</p>\n`);
+		}
+	}
+
+	handleMsItem(datafield) {
+		let lastT;
+		for (const sub of datafield.subfields) {
+			if (sub.code === 't') {
+				lastT = strTrim(sub.text, '/;:, \t\n\r\0\v');
+				continue;
+			}
+			if (sub.code !== 'g' || !lastT) continue;
+			const g = strTrim(sub.text, '/;:, \t\n\r\0\v');
+			const n = this.tei.msitems.length + 1;
+			this.tei.msitems.push(`<msItem n="${n}">
+	<locus>${escXml(g)}</locus>
+	<title>${escXml(lastT)}</title>
+</msItem>
+`);
+		}
+	}
+
+	handleBibl2(datafield) {
+		// The reference implementation uses inverted (!==) comparisons here,
+		// which net out to emitting "$a, $c" — preserved for identical output.
+		let a;
+		let c;
+		for (const sub of datafield.subfields) {
+			const v = collapseWs(strTrim(sub.text, '/;:, \t\n\r\0\v'));
+			if (sub.code !== 'a') a = v;
+			if (sub.code !== 'c') c = v;
+		}
+		const vs = [];
+		if (c) vs.push(c);
+		if (a) vs.push(a);
+		this.tei.bibls.push(`<bibl>${escXml(vs.join(', '))}</bibl>\n`);
+	}
+
+	paragraphs(datafield) {
+		const out = [];
+		for (const sub of datafield.subfields) {
+			if (sub.code !== 'a') continue;
+			const paragraph = collapseWs(strTrim(sub.text, '/;:, \t\n\r\0\v'));
+			out.push(`<p>${escXml(paragraph)}</p>\n`);
+		}
+		return out.join('');
+	}
+
+	handleAcquisition(datafield) { this.tei.acquisitions.push(this.paragraphs(datafield)); }
+	handlePhysDesc(datafield) { this.tei.physDescs.push(this.paragraphs(datafield)); }
+	handleBindingDesc(datafield) { this.tei.bindingDescs.push(this.paragraphs(datafield)); }
+
+	// One <provenance> per 561 field (one per ownership stage, per the template).
+	handleProvenance(datafield) {
+		const ps = this.paragraphs(datafield);
+		if (ps) this.tei.provenances.push(`<provenance>\n${ps}</provenance>\n`);
+	}
+
+	handleRef(datafield) {
+		const refs = datafield.subfields
+			.filter((sub) => !/^[012]$/.test(sub.code)) // drop authority URIs / source codes
+			.map((sub) => {
+				const prefix = /^[vxyz]$/.test(sub.code) ? ' -- ' : '';
+				return `${prefix}${sub.text}`;
+			})
+			.filter((s) => s !== '');
+
+		if (!Object.keys(this.tei.refs).includes(datafield.tag)) {
+			this.tei.refs[datafield.tag] = [];
+		}
+		this.tei.refs[datafield.tag].push(`<item><term key="sh00000000">${escXml(refs.join(' ').replace(/[ ]{2,}/g, ' '))}</term></item>\n`);
+	}
+
+	handleAltTitle2(datafield) {
+		const refs = datafield.subfields
+			.map((sub) => sub.text)
+			.filter((s) => s !== '');
+		this.tei.alttitles.push(`<title type="alt">${escXml(refs.join(' '))}</title>\n`);
+	}
+
+	handleName(datafield) {
+		const nss = [];
+		let relattr;
+		for (const sub of datafield.subfields) {
+			if (sub.code === '5') continue;
+			if (sub.code === 'e') {
+				const key = strTrim(sub.text, '. \t\n\r\0\v').toLowerCase();
+				if (!Object.prototype.hasOwnProperty.call(this.relatedTerms, key)) continue;
+				relattr = this.relatedTerms[key];
+				continue;
+			}
+			nss.push(sub.text);
+		}
+		const ns = strTrim(nss.join(' ').replace(/[ ]{2,}/, ' '), '/;:, \t\n\r\0\v');
+		const relattrdisp = !relattr ? '' : ` role="${escAttr(relattr)}"`;
+		this.tei.names.push(`<editor source="#viaf" key="000000000"${relattrdisp}>${escXml(ns)}</editor>\n`);
+	}
+
+	handleRepColIdno(datafield) {
+		if (!this.tei.repository) {
+			for (const sub of datafield.subfields) {
+				if (sub.code !== 'b') continue;
+				this.tei.repository = sub.text;
+			}
+		}
+		if (!this.tei.collection) {
+			for (const sub of datafield.subfields) {
+				if (sub.code !== 'c') continue;
+				if (!this.tei.repository) throw new Error('Collection request before repository request');
+				this.tei.collection = sub.text;
+			}
+		}
+		for (const sub of datafield.subfields) {
+			if (/^[abch]$/.test(sub.code)) this.tei.idno1s.push(sub.text);
+			if (sub.code === 'h') this.tei.idno2 = sub.text;
+		}
+	}
+
+	convert(record) {
+		this.tei = {
+			bibls: [], origdates: [], authors: [], alttitles: [], orignotes: [],
+			origplaces: [], extents: [], notes: [], msitems: [], acquisitions: [],
+			provenances: [], physDescs: [], bindingDescs: [], refs: {}, names: [],
+			idno1s: [], langs041: [],
+			lang008: undefined, title: undefined, repository: undefined,
+			collection: undefined, idno2: undefined
+		};
+
+		for (const controlfield of record.controlfields) {
+			switch (controlfield.tag) {
+				case '001': this.handleBibl(controlfield); break;
+				case '008': this.handleOrigDateAndLang(controlfield); break;
+			}
+		}
+
+		for (const datafield of record.datafields) {
+			switch (datafield.tag) {
+				case '041': this.handleMainLang(datafield); break;
+				case '100': this.handleAuthor(datafield); break;
+				case '245': this.handleTitle(datafield); break;
+				case '246': this.handleAltTitle(datafield); break;
+				case '264': this.handleOrigNote(datafield); break;
+				case '752': this.handleOrigPlace(datafield); break;
+				case '300': this.handleExtent(datafield); break;
+				case '500': this.handleNote(datafield); break;
+				case '505': this.handleMsItem(datafield); break;
+				case '510': this.handleBibl2(datafield); break;
+				case '541': this.handleAcquisition(datafield); break;
+				case '561': this.handleProvenance(datafield); break;
+				case '562': this.handlePhysDesc(datafield); break;
+				case '563': this.handleBindingDesc(datafield); break;
+				case '600': // deliberate fall-through
+				case '610':
+				case '611':
+				case '630':
+				case '650':
+				case '651':
+				case '655': this.handleRef(datafield); break;
+				case '740': this.handleAltTitle2(datafield); break;
+				case '700': this.handleName(datafield); break;
+				case '852': this.handleRepColIdno(datafield); break;
+			}
+		}
+
+		return prettyXml(this.renderTeiXml());
+	}
+
+	renderTextLang() {
+		const tei = this.tei;
+		// 041 $a is preferred; the 008 language code is the fallback.
+		const codes = tei.langs041.length ? tei.langs041 : (tei.lang008 ? [tei.lang008] : []);
+		const main = codes[0] || '';
+		const others = codes.slice(1);
+		const names = codes.map((c) => LANGUAGE_NAMES[c] || c).join(', ');
+		const otherAttr = others.length ? ` otherLangs="${escAttr(others.join(' '))}"` : '';
+		return `<textLang mainLang="${escAttr(main)}"${otherAttr}>${escXml(names)}</textLang>`;
+	}
+
+	renderTeiXml() {
+		const tei = this.tei;
+		const idno1 = tei.idno1s.join('-');
+		const xmlId = toXmlId(idno1);
+		const authors = tei.authors.join(' ').replace(/[ ]{2,}/g, ' ').trim();
+		const orignote = tei.orignotes.join(' ');
+		const year = String(new Date().getFullYear());
+
+		const refs = Object.keys(tei.refs)
+			.map((key) => tei.refs[key].join(''))
+			.join('');
+
+		let lookup = {};
+		let repository = tei.repository;
+		let collection = tei.collection;
+		switch (repository) {
+			case 'JRLD':
+				repository = 'The John Rylands Library';
+				lookup = this.jrldLookup;
+				break;
+			case 'MLSC':
+				repository = 'Main Library Special Collections';
+				lookup = this.mlscLookup;
+				break;
+		}
+		if (collection && Object.prototype.hasOwnProperty.call(lookup, collection)) {
+			collection = lookup[collection];
+		}
+
+		const authorXml = authors
+			? `<author source="#viaf" key="000000000">${escXml(authors)}</author>\n`
+			: '';
+		const noteXml = tei.notes.length ? `<note>\n${tei.notes.join('')}</note>\n` : '';
+		const origPlaceXml = tei.origplaces.join('');
+		const origNoteXml = orignote ? `<note type="publisher">${escXml(orignote)}</note>\n` : '';
+		const provenanceXml = tei.provenances.length
+			? tei.provenances.join('')
+			: '<provenance>\n<p/>\n</provenance>\n';
+		const acquisitionXml = tei.acquisitions.join('') || '<p/>\n';
+		const bindingXml = tei.bindingDescs.join('') || '<p/>\n';
+		const xmlIdAttr = xmlId ? ` xml:id="${escAttr(xmlId)}"` : '';
+		// <list> must contain at least one <item>, so omit the block when there are no subjects.
+		const profileDescXml = refs
+			? `<profileDesc>\n<textClass>\n<keywords scheme="#lcsh">\n<list>\n${refs}</list>\n</keywords>\n</textClass>\n</profileDesc>\n`
+			: '';
+
+		return `<?xml version="1.0" encoding="UTF-8"?>
+<?xml-model href="https://raw.githubusercontent.com/tei-for-special-collections/consolidated-schema/refs/heads/main/releases/rng/cdcp.rng" type="application/xml" schematypens="http://relaxng.org/ns/structure/1.0"?>
+<?xml-model href="https://raw.githubusercontent.com/tei-for-special-collections/consolidated-schema/refs/heads/main/releases/rng/cdcp.rng" type="application/xml" schematypens="http://purl.oclc.org/dsdl/schematron"?>
+<TEI xmlns="http://www.tei-c.org/ns/1.0"${xmlIdAttr}>
+<teiHeader>
+<fileDesc>
+	<titleStmt>
+		<title>${escXml(tei.idno2 || tei.title || '')}</title>
+		<respStmt>
+			<resp>Project Photographer</resp>
+			<resp>Digitisation</resp>
+			<persName/>
+		</respStmt>
+		<respStmt>
+			<resp>Manchester Digital Collections (MDC) Content Coordinator</resp>
+			<persName>Charlotte Hoare</persName>
+		</respStmt>
+		<respStmt>
+			<resp>Digital Metadata Specialist</resp>
+			<resp>TEI-XML editing and encoding standardisation, reviewing and supervision</resp>
+			<persName>Ourania Karapasia</persName>
+		</respStmt>
+		<respStmt>
+			<resp>Senior Software Developer</resp>
+			<resp>Metadata processing</resp>
+			<persName>Thomas Higgins</persName>
+		</respStmt>
+	</titleStmt>
+	<publicationStmt>
+		<publisher>The University of Manchester Library</publisher>
+		<date when="${year}">${year}</date>
+		<pubPlace>
+			<address>
+				<addrLine>The John Rylands Library</addrLine>
+				<street>150 Deansgate</street>
+				<settlement>Manchester</settlement>
+				<postCode>M3 3EH</postCode>
+				<addrLine><ref target="https://www.library.manchester.ac.uk/rylands/special-collections/">The John Rylands Library</ref></addrLine>
+				<addrLine><email>uml.special-collections@manchester.ac.uk</email></addrLine>
+			</address>
+		</pubPlace>
+		<availability xml:id="displayImageRights" status="restricted">
+			<p>Zooming image © University of Manchester Library. All rights reserved.</p>
+		</availability>
+		<availability xml:id="downloadImageRights" status="restricted">
+			<licence target="https://creativecommons.org/licenses/by-nc/4.0/">Images made available for download are licensed under a Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).</licence>
+		</availability>
+		<availability xml:id="metadataRights" status="restricted">
+			<licence target="https://creativecommons.org/licenses/by-nc/4.0/">Metadata made available for download is licensed under a Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0).</licence>
+		</availability>
+	</publicationStmt>
+	<sourceDesc>
+		<msDesc>
+			<msIdentifier>
+				<country>United Kingdom</country>
+				<region>Greater Manchester</region>
+				<settlement>Manchester</settlement>
+				<institution>The University of Manchester</institution>
+				<repository>${escXml(repository || '')}</repository>
+				<collection>${escXml(collection || '')}</collection>
+				<idno>${escXml(tei.idno2 || '')}</idno>
+			</msIdentifier>
+			<msContents>
+				<summary>
+					<p/>
+				</summary>
+				<msItem>
+					<title>${escXml(tei.title || '')}</title>
+${tei.alttitles.join('')}
+					${this.renderTextLang()}
+${authorXml}
+${tei.names.join('')}
+${noteXml}
+${tei.msitems.join('')}
+				</msItem>
+			</msContents>
+			<physDesc>
+${tei.physDescs.join('')}
+				<objectDesc form="codex">
+					<supportDesc material="paper">
+						<support>
+							<material/>
+						</support>
+${tei.extents.join('')}
+						<foliation>
+							<p/>
+						</foliation>
+						<collation>
+							<p/>
+						</collation>
+						<condition>
+							<p/>
+						</condition>
+					</supportDesc>
+					<layoutDesc>
+						<layout>
+							<p/>
+						</layout>
+					</layoutDesc>
+				</objectDesc>
+				<handDesc>
+					<handNote>
+						<p/>
+					</handNote>
+				</handDesc>
+				<decoDesc>
+					<decoNote type="illustration">
+						<p/>
+					</decoNote>
+					<decoNote type="initial">
+						<p/>
+					</decoNote>
+				</decoDesc>
+				<additions>
+					<p/>
+				</additions>
+				<bindingDesc>
+					<binding>
+${bindingXml}
+					</binding>
+				</bindingDesc>
+			</physDesc>
+			<history>
+				<origin>
+${tei.origdates.join('')}
+${origPlaceXml}
+${origNoteXml}
+				</origin>
+${provenanceXml}
+				<acquisition>
+${acquisitionXml}
+				</acquisition>
+			</history>
+			<additional>
+				<adminInfo>
+					<availability status="restricted">
+						<p>The item is available for consultation by any accredited reader.</p>
+						<p>For information on eligibility and admissions procedures, see <ref target="https://www.library.manchester.ac.uk/rylands/special-collections/using-the-reading-rooms/john-rylands-library/">Using Special Collections at the John Rylands Research Institute and Library</ref>.</p>
+						<p>For further information on the availability of the item, please contact the <ref target="uml.special-collections@manchester.ac.uk">Special Collections Reader Services</ref>.</p>
+					</availability>
+					<custodialHist>
+						<custEvent type="digitisation" when="9999-01-01">
+							<p>Digitised on <!-- x month year --> by <!-- NAME_PLACEHOLDER --> at the Rylands Heritage Imaging Lab of The John Rylands Library as part of the <!-- PROJECT_PLACEHOLDER -->.</p>
+						</custEvent>
+					</custodialHist>
+				</adminInfo>
+${tei.bibls.length ? `<listBibl>\n${tei.bibls.join('')}</listBibl>\n` : ''}
+			</additional>
+		</msDesc>
+	</sourceDesc>
+</fileDesc>
+<encodingDesc>
+	<classDecl>
+		<taxonomy xml:id="lcsh">
+			<bibl><ref target="https://id.loc.gov/authorities/subjects.html">Library of Congress Subject Headings (LCSH)</ref></bibl>
+		</taxonomy>
+		<taxonomy xml:id="iso639-2">
+			<bibl><ref target="https://www.loc.gov/standards/iso639-2/php/code_list.php">ISO 639-2 Codes for the Representation of Names of Languages (LC)</ref></bibl>
+		</taxonomy>
+		<taxonomy xml:id="marcrelator">
+			<bibl><ref target="https://www.loc.gov/marc/relators/relaterm.html">MARC Code List for Relators (LC)</ref></bibl>
+		</taxonomy>
+		<taxonomy xml:id="viaf">
+			<bibl><ref target="https://viaf.org">Virtual International Authority File (VIAF)</ref></bibl>
+		</taxonomy>
+		<taxonomy xml:id="tgn">
+			<bibl><ref target="https://www.getty.edu/research/tools/vocabularies/tgn/index.html">Getty Thesaurus of Geographic Names® (TGN)</ref></bibl>
+		</taxonomy>
+		<taxonomy xml:id="aat">
+			<bibl><ref target="https://www.getty.edu/research/tools/vocabularies/aat">Getty Art &amp; Architecture Thesaurus® (AAT)</ref></bibl>
+		</taxonomy>
+	</classDecl>
+</encodingDesc>
+${profileDescXml}<!-- DO NOT remove comment tags from <revisionDesc> unless you want the revision statement to display -->
+<!--<revisionDesc><change when="yyyy-mm-dd">replace date and insert <persName>name</persName></change></revisionDesc>-->
+</teiHeader>
+<facsimile>
+	<surface/>
+</facsimile>
+<text>
+	<body>
+		<div/>
+	</body>
+</text>
+</TEI>
+`;
+	}
+}
+
+/* ============================================================
+ * XML pretty-printer (equivalent of shared-tei's prettyXml)
+ * ============================================================ */
+
+// Elements always written on a single line, even when they contain only
+// child elements (e.g. <origPlace><country/></origPlace>).
+const INLINE_ELEMENTS = new Set(['p', 'title', 'origPlace', 'textLang', 'licence', 'bibl', 'term', 'item', 'addrLine']);
+// Mixed-content elements whose children are block-level (text, then <dimensions>).
+const BLOCK_MIXED_ELEMENTS = new Set(['extent']);
+
+function prettyXml(xmlStr) {
+	const body = xmlStr.replace(/^\s*<\?xml[^?]*\?>\s*/, '');
+	const doc = new DOMParser().parseFromString(body, 'application/xml');
+	if (doc.getElementsByTagName('parsererror').length > 0) return xmlStr;
+
+	const out = ['<?xml version="1.0" encoding="UTF-8"?>\n'];
+	for (const n of Array.from(doc.childNodes)) {
+		if (n.nodeType === Node.PROCESSING_INSTRUCTION_NODE) out.push(`<?${n.target} ${n.data}?>\n`);
+		else if (n.nodeType === Node.COMMENT_NODE) out.push(`<!--${n.nodeValue}-->\n`);
+		else if (n.nodeType === Node.ELEMENT_NODE) serializeElement(n, 0, out);
+	}
+	return out.join('');
+}
+
+function serializeAttrs(el) {
+	return Array.from(el.attributes)
+		.map((a) => ` ${a.name}="${escAttr(a.value)}"`)
+		.join('');
+}
+
+function serializeElement(el, depth, out) {
+	const indent = '\t'.repeat(depth);
+	const children = Array.from(el.childNodes);
+	const hasElements = children.some((n) => n.nodeType === Node.ELEMENT_NODE);
+	const hasComments = children.some((n) => n.nodeType === Node.COMMENT_NODE);
+	const hasText = children.some((n) => n.nodeType === Node.TEXT_NODE && n.nodeValue.trim() !== '');
+
+	if (!hasElements && !hasComments && !hasText) {
+		out.push(`${indent}<${el.tagName}${serializeAttrs(el)}/>\n`);
+		return;
+	}
+
+	if (hasText && hasElements && BLOCK_MIXED_ELEMENTS.has(el.localName)) {
+		// mixed content laid out as a block: each text run and child on its own line
+		out.push(`${indent}<${el.tagName}${serializeAttrs(el)}>\n`);
+		for (const n of children) {
+			if (n.nodeType === Node.ELEMENT_NODE) serializeElement(n, depth + 1, out);
+			else if (n.nodeType === Node.COMMENT_NODE) out.push(`${indent}\t<!--${n.nodeValue}-->\n`);
+			else if (n.nodeType === Node.TEXT_NODE && n.nodeValue.trim() !== '') {
+				out.push(`${indent}\t${escXml(n.nodeValue.replace(/\s+/g, ' ').trim())}\n`);
+			}
+		}
+		out.push(`${indent}</${el.tagName}>\n`);
+		return;
+	}
+
+	if (hasText || INLINE_ELEMENTS.has(el.localName)) {
+		// text or mixed content: keep on one line, collapse internal whitespace
+		out.push(`${indent}<${el.tagName}${serializeAttrs(el)}>`);
+		const inline = [];
+		for (const n of children) serializeInline(n, inline);
+		out.push(inline.join('').replace(/^\s+|\s+$/g, ''));
+		out.push(`</${el.tagName}>\n`);
+		return;
+	}
+
+	out.push(`${indent}<${el.tagName}${serializeAttrs(el)}>\n`);
+	for (const n of children) {
+		if (n.nodeType === Node.ELEMENT_NODE) serializeElement(n, depth + 1, out);
+		else if (n.nodeType === Node.COMMENT_NODE) out.push(`${'\t'.repeat(depth + 1)}<!--${n.nodeValue}-->\n`);
+	}
+	out.push(`${indent}</${el.tagName}>\n`);
+}
+
+function serializeInline(node, out) {
+	if (node.nodeType === Node.TEXT_NODE) {
+		out.push(escXml(node.nodeValue.replace(/\s+/g, ' ')));
+	} else if (node.nodeType === Node.ELEMENT_NODE) {
+		const kids = Array.from(node.childNodes);
+		if (kids.length === 0) {
+			out.push(`<${node.tagName}${serializeAttrs(node)}/>`);
+		} else {
+			out.push(`<${node.tagName}${serializeAttrs(node)}>`);
+			for (const k of kids) serializeInline(k, out);
+			out.push(`</${node.tagName}>`);
+		}
+	} else if (node.nodeType === Node.COMMENT_NODE) {
+		out.push(`<!--${node.nodeValue}-->`);
+	}
+}
+
+/* ============================================================
+ * XML syntax highlighting
+ * ============================================================ */
+
+function highlightXml(xml) {
+	const out = [];
+	const re = /<!--[\s\S]*?-->|<\?[\s\S]*?\?>|<[^>]+>/g;
+	let last = 0;
+	let m;
+	while ((m = re.exec(xml)) !== null) {
+		if (m.index > last) out.push(escXml(xml.slice(last, m.index)));
+		out.push(highlightMarkup(m[0]));
+		last = m.index + m[0].length;
+	}
+	if (last < xml.length) out.push(escXml(xml.slice(last)));
+	return out.join('');
+}
+
+function highlightMarkup(markup) {
+	if (markup.startsWith('<!--')) return `<span class="sx-comment">${escXml(markup)}</span>`;
+	if (markup.startsWith('<?')) return `<span class="sx-decl">${escXml(markup)}</span>`;
+	const m = /^(<\/?)([^\s/>]+)([\s\S]*?)(\/?>)$/.exec(markup);
+	if (!m) return escXml(markup);
+	return `<span class="sx-punc">${escXml(m[1])}</span>`
+		+ `<span class="sx-tag">${escXml(m[2])}</span>`
+		+ highlightAttrs(m[3])
+		+ `<span class="sx-punc">${escXml(m[4])}</span>`;
+}
+
+function highlightAttrs(s) {
+	const out = [];
+	const re = /([^\s=]+)=("[^"]*")/g;
+	let last = 0;
+	let m;
+	while ((m = re.exec(s)) !== null) {
+		out.push(escXml(s.slice(last, m.index)));
+		out.push(`<span class="sx-attr">${escXml(m[1])}</span><span class="sx-punc">=</span><span class="sx-val">${escXml(m[2])}</span>`);
+		last = m.index + m[0].length;
+	}
+	out.push(escXml(s.slice(last)));
+	return out.join('');
+}
+
+/* ============================================================
+ * UI wiring
+ * ============================================================ */
+
+const tabs = document.querySelectorAll('nav#tabs .tab');
+tabs.forEach((tab) => {
+	tab.addEventListener('click', () => {
+		tabs.forEach((t) => {
+			const active = t === tab;
+			t.classList.toggle('active', active);
+			t.setAttribute('aria-selected', String(active));
+			document.getElementById(t.dataset.tab).hidden = !active;
+		});
+	});
+});
+
+const dropzone = document.getElementById('dropzone');
+const fileinput = document.getElementById('fileinput');
+const resultsEl = document.getElementById('results');
+
+dropzone.addEventListener('click', () => fileinput.click());
+dropzone.addEventListener('keydown', (e) => {
+	if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileinput.click(); }
+});
+dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('dragover'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('dragover'));
+dropzone.addEventListener('drop', (e) => {
+	e.preventDefault();
+	dropzone.classList.remove('dragover');
+	handleFiles(e.dataTransfer.files);
+});
+fileinput.addEventListener('change', () => {
+	handleFiles(fileinput.files);
+	fileinput.value = '';
+});
+
+async function handleFiles(fileList) {
+	for (const file of Array.from(fileList)) {
+		let text;
+		try {
+			text = await file.text();
+		} catch (e) {
+			renderError(file.name, 'Unable to read file: ' + e.message);
+			continue;
+		}
+		convertText(file.name, text);
+	}
+}
+
+function convertText(filename, text) {
+	const base = filename.replace(/\.xml$/i, '');
+	let records;
+	try {
+		records = parseMarcFile(text);
+	} catch (e) {
+		renderError(filename, e.message);
+		return;
+	}
+
+	const converter = new Converter(RELATED_TERMS, JRLD_LOOKUPS, MLSC_LOOKUPS);
+	const outputs = [];
+	records.forEach((record, i) => {
+		const outName = records.length === 1 ? `${base}_out.xml` : `${base}-${i + 1}_out.xml`;
+		try {
+			const xml = converter.convert(record);
+			outputs.push({ name: outName, xml: xml, title: converter.tei.title || '(no title)' });
+		} catch (e) {
+			outputs.push({ name: outName, error: e.message });
+		}
+	});
+	renderResult(filename, outputs);
+}
+
+function renderError(filename, message) {
+	const card = document.createElement('div');
+	card.className = 'card error';
+	const h = document.createElement('h4');
+	h.textContent = filename;
+	const p = document.createElement('div');
+	p.className = 'status bad';
+	p.textContent = message;
+	card.append(h, p);
+	resultsEl.prepend(card);
+	document.getElementById('convert').classList.add('has-results');
+}
+
+function renderResult(filename, outputs) {
+	const card = document.createElement('div');
+	card.className = 'card';
+	const h = document.createElement('h4');
+	h.textContent = filename;
+	card.append(h);
+
+	const good = outputs.filter((o) => !o.error);
+	const status = document.createElement('div');
+	status.className = good.length ? 'status ok' : 'status bad';
+	status.textContent = `${good.length} of ${outputs.length} record${outputs.length === 1 ? '' : 's'} converted`;
+	card.append(status);
+
+	for (const o of outputs) {
+		const rec = document.createElement('div');
+		rec.className = 'record';
+		const head = document.createElement('div');
+		head.className = 'rec-head';
+
+		if (o.error) {
+			const t = document.createElement('div');
+			t.className = 'rec-title status bad';
+			t.textContent = `${o.name} — ${o.error}`;
+			head.append(t);
+			rec.append(head);
+		} else {
+			const t = document.createElement('div');
+			t.className = 'rec-title';
+			t.textContent = `${o.name} — ${o.title}`;
+			const dl = document.createElement('button');
+			dl.className = 'btn';
+			dl.type = 'button';
+			dl.textContent = 'Download TEI';
+			dl.addEventListener('click', () => downloadXml(o.name, o.xml));
+			head.append(t, dl);
+			rec.append(head);
+
+			const details = document.createElement('details');
+			details.open = true;
+			const summary = document.createElement('summary');
+			summary.textContent = 'Preview output';
+			const pre = document.createElement('pre');
+			pre.innerHTML = highlightXml(o.xml);
+			details.append(summary, pre);
+			rec.append(details);
+		}
+		card.append(rec);
+	}
+	resultsEl.prepend(card);
+	document.getElementById('convert').classList.add('has-results');
+}
+
+function downloadXml(name, xml) {
+	const blob = new Blob([xml], { type: 'application/xml' });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = name;
+	document.body.append(a);
+	a.click();
+	a.remove();
+	setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+</script>
+</body>
+</html>
